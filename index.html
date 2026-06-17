@@ -2,279 +2,186 @@
 <html lang="zh-TW">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<title>濾鏡相機</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>植物對齊</title>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;700&display=swap');
-
   :root {
-    --bg: #0a0a0a;
-    --surface: #141414;
-    --surface2: #1e1e1e;
-    --border: rgba(255,255,255,0.08);
-    --border2: rgba(255,255,255,0.15);
-    --text: #f0f0f0;
-    --muted: #666;
-    --accent: #e8ff47;
-    --accent-dim: rgba(232,255,71,0.12);
+    --bg: #0c0f0a;
+    --surface: rgba(255,255,255,0.06);
+    --border: rgba(255,255,255,0.1);
+    --text: #e8ede4;
+    --muted: #6b7566;
+    --accent: #7ec850;
+    --accent-dim: rgba(126,200,80,0.15);
     --radius: 12px;
   }
 
-  * { box-sizing: border-box; margin: 0; padding: 0; }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
 
   body {
     background: var(--bg);
     color: var(--text);
-    font-family: 'Syne', sans-serif;
-    min-height: 100vh;
+    font-family: -apple-system, 'Helvetica Neue', sans-serif;
+    height: 100dvh;
     display: flex;
     flex-direction: column;
-    align-items: center;
-    padding: 24px 16px 40px;
+    overflow: hidden;
+    user-select: none;
   }
 
-  header {
-    width: 100%;
-    max-width: 500px;
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    margin-bottom: 20px;
-  }
-
-  header h1 {
-    font-size: 22px;
-    font-weight: 700;
-    letter-spacing: -0.5px;
-  }
-
-  header span {
-    font-family: 'DM Mono', monospace;
-    font-size: 11px;
-    color: var(--muted);
-    text-transform: uppercase;
-    letter-spacing: 1px;
-  }
-
+  /* ── Viewfinder ── */
   #cam-wrap {
     position: relative;
-    width: 100%;
-    max-width: 500px;
-    aspect-ratio: 4/3;
-    border-radius: var(--radius);
+    flex: 1;
     overflow: hidden;
-    background: var(--surface);
-    border: 1px solid var(--border);
+    background: #000;
   }
 
-  #preview {
+  #video {
+    position: absolute;
+    inset: 0;
     width: 100%;
     height: 100%;
     object-fit: cover;
-    display: block;
-    transition: filter 0.25s ease;
   }
 
-  #canvas { display: none; }
+  #overlay-canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    touch-action: none;
+  }
 
-  /* Overlay when camera is off */
-  #cam-placeholder {
+  /* Grid guide overlay */
+  #grid-svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  #grid-svg.visible { opacity: 1; }
+
+  /* Touch capture layer */
+  #touch-layer {
+    position: absolute;
+    inset: 0;
+    touch-action: none;
+  }
+
+  /* Placeholder */
+  #placeholder {
     position: absolute;
     inset: 0;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 12px;
+    gap: 10px;
     color: var(--muted);
+    pointer-events: none;
+  }
+  #placeholder svg { opacity: 0.25; }
+  #placeholder p { font-size: 13px; letter-spacing: 0.3px; }
+
+  /* Blink indicator */
+  #blink-indicator {
+    position: absolute;
+    top: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(126,200,80,0.9);
+    color: #0c0f0a;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    padding: 4px 12px;
+    border-radius: 20px;
+    display: none;
   }
 
-  #cam-placeholder svg {
-    width: 48px;
-    height: 48px;
-    opacity: 0.3;
-  }
-
-  #cam-placeholder p {
-    font-size: 13px;
-    letter-spacing: 0.5px;
-  }
-
-  /* Filter strip */
-  #filter-strip {
-    width: 100%;
-    max-width: 500px;
-    overflow-x: auto;
-    margin-top: 14px;
-    padding-bottom: 4px;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
-  }
-  #filter-strip::-webkit-scrollbar { display: none; }
-
-  #filter-list {
-    display: flex;
-    gap: 8px;
-    width: max-content;
-  }
-
-  .fbtn {
+  /* ── Bottom panel ── */
+  #panel {
+    background: var(--bg);
+    border-top: 1px solid var(--border);
+    padding: 14px 16px 28px;
     display: flex;
     flex-direction: column;
-    align-items: center;
-    gap: 5px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 8px 14px;
-    cursor: pointer;
-    transition: all 0.18s ease;
-    color: var(--muted);
+    gap: 12px;
   }
 
-  .fbtn:hover { border-color: var(--border2); color: var(--text); }
-
-  .fbtn.active {
-    border-color: var(--accent);
-    background: var(--accent-dim);
-    color: var(--accent);
-  }
-
-  .fbtn .thumb {
-    width: 44px;
-    height: 32px;
-    border-radius: 6px;
-    background: #2a2a2a;
-    overflow: hidden;
-    position: relative;
-  }
-
-  .fbtn .thumb canvas {
-    width: 100%;
-    height: 100%;
-  }
-
-  .fbtn label {
-    font-family: 'DM Mono', monospace;
-    font-size: 10px;
-    letter-spacing: 0.5px;
-    pointer-events: none;
-    white-space: nowrap;
-  }
-
-  /* Controls */
-  #controls {
+  /* Row */
+  .row {
     display: flex;
+    align-items: center;
     gap: 10px;
-    margin-top: 16px;
-    width: 100%;
-    max-width: 500px;
   }
 
-  #start-btn, #snap-btn, #flip-btn {
-    font-family: 'Syne', sans-serif;
-    font-size: 13px;
-    font-weight: 700;
-    letter-spacing: 0.5px;
+  /* Buttons */
+  .btn {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
     border-radius: 10px;
-    border: 1px solid var(--border2);
-    background: var(--surface2);
+    border: 1px solid var(--border);
+    background: var(--surface);
     color: var(--text);
     cursor: pointer;
-    transition: all 0.18s ease;
-    padding: 12px 20px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
+    padding: 10px 14px;
+    white-space: nowrap;
+    transition: all 0.15s;
   }
-
-  #start-btn:hover, #flip-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .btn:active { transform: scale(0.96); }
+  .btn.active { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
 
   #snap-btn {
     flex: 1;
     justify-content: center;
     background: var(--accent);
-    color: #0a0a0a;
+    color: #0c0f0a;
     border-color: var(--accent);
+    font-size: 13px;
+    font-weight: 700;
     display: none;
   }
+  #snap-btn:active { background: #6ab840; }
 
-  #snap-btn:hover { background: #d4eb30; }
-  #snap-btn:active { transform: scale(0.97); }
-
-  #flip-btn { display: none; }
-
-  /* Status */
-  #status {
-    font-family: 'DM Mono', monospace;
-    font-size: 11px;
-    color: var(--muted);
-    margin-top: 10px;
-    text-align: center;
-    letter-spacing: 0.5px;
-    min-height: 16px;
-    width: 100%;
-    max-width: 500px;
-  }
-
-  /* Gallery */
-  #gallery-label {
-    font-family: 'DM Mono', monospace;
-    font-size: 11px;
-    color: var(--muted);
-    text-transform: uppercase;
-    letter-spacing: 1.5px;
-    margin-top: 28px;
-    margin-bottom: 10px;
-    width: 100%;
-    max-width: 500px;
+  /* Slider row */
+  .slider-row {
     display: none;
+    align-items: center;
+    gap: 10px;
+  }
+  .slider-row.visible { display: flex; }
+
+  .slider-row label {
+    font-size: 11px;
+    color: var(--muted);
+    min-width: 52px;
   }
 
-  #gallery {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 8px;
-    width: 100%;
-    max-width: 500px;
-  }
-
-  .shot {
-    position: relative;
-    aspect-ratio: 4/3;
-    border-radius: 8px;
-    overflow: hidden;
-    border: 1px solid var(--border);
-    animation: pop 0.25s ease;
-  }
-
-  @keyframes pop {
-    from { transform: scale(0.85); opacity: 0; }
-    to { transform: scale(1); opacity: 1; }
-  }
-
-  .shot img { width: 100%; height: 100%; object-fit: cover; display: block; }
-
-  .shot .dl {
-    position: absolute;
-    bottom: 6px;
-    right: 6px;
-    background: rgba(10,10,10,0.75);
-    color: #fff;
-    border: none;
-    border-radius: 6px;
-    padding: 4px 8px;
-    font-family: 'DM Mono', monospace;
-    font-size: 10px;
+  input[type=range] {
+    flex: 1;
+    accent-color: var(--accent);
     cursor: pointer;
-    opacity: 0;
-    transition: opacity 0.15s;
-    backdrop-filter: blur(4px);
   }
 
-  .shot:hover .dl { opacity: 1; }
+  .slider-val {
+    font-size: 11px;
+    color: var(--muted);
+    min-width: 28px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
 
-  /* Shutter flash */
+  /* Hidden inputs */
+  #ref-input, #snap-canvas { display: none; }
+
+  /* Flash */
   #flash {
     position: fixed;
     inset: 0;
@@ -284,215 +191,533 @@
     z-index: 999;
     transition: opacity 0.08s;
   }
+  #flash.on { opacity: 0.55; }
 
-  #flash.on { opacity: 0.6; }
+  /* Anchor mode hint */
+  #anchor-hint {
+    position: absolute;
+    bottom: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0,0,0,0.7);
+    color: var(--accent);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    padding: 6px 14px;
+    border-radius: 20px;
+    display: none;
+    pointer-events: none;
+    white-space: nowrap;
+  }
+
+  /* Anchor SVG layer */
+  #anchor-svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    overflow: visible;
+  }
 </style>
 </head>
 <body>
 
 <div id="flash"></div>
 
-<header>
-  <h1>濾鏡相機</h1>
-  <span>Filter Cam v1.0</span>
-</header>
-
 <div id="cam-wrap">
-  <video id="preview" autoplay playsinline muted></video>
-  <canvas id="canvas"></canvas>
-  <div id="cam-placeholder">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
-      <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
-      <circle cx="12" cy="13" r="4"/>
+  <video id="video" autoplay playsinline muted></video>
+
+  <!-- overlay drawn here -->
+  <canvas id="overlay-canvas"></canvas>
+
+  <!-- grid guide -->
+  <svg id="grid-svg" viewBox="0 0 3 3" preserveAspectRatio="none">
+    <line x1="1" y1="0" x2="1" y2="3" stroke="rgba(255,255,255,0.18)" stroke-width="0.008"/>
+    <line x1="2" y1="0" x2="2" y2="3" stroke="rgba(255,255,255,0.18)" stroke-width="0.008"/>
+    <line x1="0" y1="1" x2="3" y2="1" stroke="rgba(255,255,255,0.18)" stroke-width="0.008"/>
+    <line x1="0" y1="2" x2="3" y2="2" stroke="rgba(255,255,255,0.18)" stroke-width="0.008"/>
+    <circle cx="1.5" cy="1.5" r="0.04" fill="rgba(255,255,255,0.5)"/>
+    <line x1="1.4" y1="1.5" x2="1.6" y2="1.5" stroke="rgba(255,255,255,0.5)" stroke-width="0.012"/>
+    <line x1="1.5" y1="1.4" x2="1.5" y2="1.6" stroke="rgba(255,255,255,0.5)" stroke-width="0.012"/>
+  </svg>
+
+  <!-- anchor SVG layer (below touch layer) -->
+  <svg id="anchor-svg"></svg>
+
+  <!-- touch capture layer (over everything) -->
+  <div id="touch-layer"></div>
+
+  <!-- anchor mode hint -->
+  <div id="anchor-hint">點選兩個錨點位置</div>
+
+  <div id="placeholder">
+    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
+      <path d="M12 2a7 7 0 0 1 7 7c0 4-7 13-7 13S5 13 5 9a7 7 0 0 1 7-7z"/>
+      <circle cx="12" cy="9" r="2.5"/>
     </svg>
-    <p>點擊「開啟鏡頭」開始</p>
+    <p>點擊「開啟相機」開始</p>
+  </div>
+
+  <div id="blink-indicator">◉ 閃爍比對中</div>
+</div>
+
+<div id="panel">
+  <!-- Row 1: camera + ref + grid + blink -->
+  <div class="row">
+    <button class="btn" id="start-btn">開啟相機</button>
+    <button class="btn" id="load-btn">載入底圖</button>
+    <button class="btn" id="grid-btn">格線</button>
+    <button class="btn" id="blink-btn" style="display:none">閃爍</button>
+    <button class="btn" id="anchor-btn" style="display:none">錨點</button>
+    <button class="btn" id="snap-btn">拍照</button>
+  </div>
+
+  <!-- Row 2: opacity slider (shown after ref loaded) -->
+  <div class="slider-row" id="opacity-row">
+    <label>透明度</label>
+    <input type="range" id="opacity-slider" min="5" max="80" value="35">
+    <span class="slider-val" id="opacity-val">35%</span>
   </div>
 </div>
 
-<div id="filter-strip">
-  <div id="filter-list"></div>
-</div>
-
-<div id="controls">
-  <button id="start-btn">
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-    開啟鏡頭
-  </button>
-  <button id="flip-btn">
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 1 0 .49-3.51"/></svg>
-    翻轉
-  </button>
-  <button id="snap-btn">
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="3"/><path d="M20.94 11A8.994 8.994 0 1 1 12 3.06"/></svg>
-    拍照
-  </button>
-</div>
-
-<p id="status">請允許瀏覽器存取鏡頭</p>
-
-<p id="gallery-label">已拍攝</p>
-<div id="gallery"></div>
+<input type="file" id="ref-input" accept="image/*">
+<canvas id="snap-canvas"></canvas>
 
 <script>
-const FILTERS = [
-  { name: '原圖',   css: 'none',                                                                               grain: 0,  liftBlacks: 0  },
-  { name: '富士',   css: 'contrast(1.08) brightness(1.05) saturate(1.3) sepia(0.18) hue-rotate(-5deg)',        grain: 8,  liftBlacks: 10 },
-  { name: 'Portra', css: 'contrast(0.95) brightness(1.08) saturate(0.9) sepia(0.12) hue-rotate(-8deg)',        grain: 14, liftBlacks: 18, warmShadow: true },
-  { name: '400H',   css: 'contrast(0.9) brightness(1.1) saturate(0.8) hue-rotate(8deg)',                       grain: 10, liftBlacks: 22, coolShadow: true },
-  { name: 'Natura', css: 'contrast(1.05) brightness(0.98) saturate(0.65) hue-rotate(5deg)',                    grain: 32, liftBlacks: 12 },
-];
+// ── State ──
+const video         = document.getElementById('video');
+const overlayCvs    = document.getElementById('overlay-canvas');
+const oc            = overlayCvs.getContext('2d');
+const snapCanvas    = document.getElementById('snap-canvas');
+const startBtn      = document.getElementById('start-btn');
+const loadBtn       = document.getElementById('load-btn');
+const snapBtn       = document.getElementById('snap-btn');
+const gridBtn       = document.getElementById('grid-btn');
+const blinkBtn      = document.getElementById('blink-btn');
+const anchorBtn     = document.getElementById('anchor-btn');
+const refInput      = document.getElementById('ref-input');
+const opacityRow    = document.getElementById('opacity-row');
+const opacitySlider = document.getElementById('opacity-slider');
+const opacityVal    = document.getElementById('opacity-val');
+const placeholder   = document.getElementById('placeholder');
+const flash         = document.getElementById('flash');
+const gridSvg       = document.getElementById('grid-svg');
+const blinkInd      = document.getElementById('blink-indicator');
+const touchLayer    = document.getElementById('touch-layer');
+const anchorSvg     = document.getElementById('anchor-svg');
+const anchorHint    = document.getElementById('anchor-hint');
 
-const video = document.getElementById('preview');
-const canvas = document.getElementById('canvas');
-const status = document.getElementById('status');
-const startBtn = document.getElementById('start-btn');
-const snapBtn = document.getElementById('snap-btn');
-const flipBtn = document.getElementById('flip-btn');
-const gallery = document.getElementById('gallery');
-const galleryLabel = document.getElementById('gallery-label');
-const placeholder = document.getElementById('cam-placeholder');
-const flash = document.getElementById('flash');
-const filterList = document.getElementById('filter-list');
+let refImg     = null;
+let opacity    = 0.35;
+let gridOn     = false;
+let blinkOn    = false;
+let blinkTimer = null;
+let blinkShow  = true;
+let streaming  = false;
 
-let currentFilter = 'none';
-let facingMode = 'user';
-let streaming = false;
+// transform state
+let tx = 0, ty = 0, scale = 1, rot = 0;
 
-// Build filter buttons
-FILTERS.forEach((f, i) => {
-  const btn = document.createElement('button');
-  btn.className = 'fbtn' + (i === 0 ? ' active' : '');
-  btn.dataset.css = f.css;
-  btn.innerHTML = `<span class="thumb"><canvas width="44" height="32"></canvas></span><label>${f.name}</label>`;
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.fbtn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    currentFilter = f.css;
-    video.style.filter = currentFilter;
-  });
-  filterList.appendChild(btn);
-});
+// ── Anchor state ──
+// anchors stored as normalized coords relative to refImg center
+// { nx, ny } where nx = (px - imgCenterX) / imgW, ny = (py - imgCenterY) / imgH
+// so they transform with the image
+let anchorMode  = false;   // currently placing anchors on overlay
+let anchors     = [];      // max 2, each { nx, ny, confirmed }
 
-// Draw tiny preview thumbnails with filters
-function drawThumbs() {
-  const tmpCanvas = document.createElement('canvas');
-  tmpCanvas.width = 44; tmpCanvas.height = 32;
-  const tmpCtx = tmpCanvas.getContext('2d');
-  tmpCtx.drawImage(video, 0, 0, 44, 32);
-  filterList.querySelectorAll('.thumb canvas').forEach((c, i) => {
-    const ctx = c.getContext('2d');
-    ctx.filter = FILTERS[i].css === 'none' ? 'none' : FILTERS[i].css;
-    ctx.drawImage(tmpCanvas, 0, 0, 44, 32);
+// ── Resize overlay canvas ──
+function resizeCanvas() {
+  const wrap = overlayCvs.parentElement;
+  overlayCvs.width  = wrap.offsetWidth;
+  overlayCvs.height = wrap.offsetHeight;
+  // also resize anchor SVG viewBox
+  anchorSvg.setAttribute('viewBox', `0 0 ${wrap.offsetWidth} ${wrap.offsetHeight}`);
+}
+window.addEventListener('resize', () => { resizeCanvas(); draw(); drawAnchors(); });
+resizeCanvas();
+
+// ── Draw reference image overlay ──
+function draw() {
+  const W = overlayCvs.width;
+  const H = overlayCvs.height;
+  oc.clearRect(0, 0, W, H);
+  if (!refImg || !blinkShow) return;
+
+  oc.save();
+  oc.globalAlpha = opacity;
+  oc.translate(W / 2 + tx, H / 2 + ty);
+  oc.rotate(rot);
+  oc.scale(scale, scale);
+  oc.drawImage(refImg, -refImg.naturalWidth / 2, -refImg.naturalHeight / 2,
+               refImg.naturalWidth, refImg.naturalHeight);
+  oc.restore();
+}
+
+// ── Convert anchor normalized coords → screen coords ──
+function anchorToScreen(a) {
+  const W = overlayCvs.width;
+  const H = overlayCvs.height;
+  // local coords relative to img center
+  const lx = a.nx * refImg.naturalWidth;
+  const ly = a.ny * refImg.naturalHeight;
+  // apply rotation
+  const cosR = Math.cos(rot), sinR = Math.sin(rot);
+  const rx = lx * cosR - ly * sinR;
+  const ry = lx * sinR + ly * cosR;
+  // apply scale + translate
+  return {
+    x: W / 2 + tx + rx * scale,
+    y: H / 2 + ty + ry * scale
+  };
+}
+
+// ── Draw anchors on SVG layer ──
+function drawAnchors() {
+  anchorSvg.innerHTML = '';
+  if (!refImg) return;
+
+  anchors.forEach((a, i) => {
+    const pos = anchorToScreen(a);
+    const confirmed = a.confirmed;
+    const color = confirmed ? '#4ade80' : '#ef4444';
+    const labelBg = confirmed ? 'rgba(74,222,128,0.15)' : 'rgba(239,68,68,0.15)';
+
+    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+
+    // outer ring
+    const ring = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    ring.setAttribute('cx', pos.x);
+    ring.setAttribute('cy', pos.y);
+    ring.setAttribute('r', '22');
+    ring.setAttribute('fill', labelBg);
+    ring.setAttribute('stroke', color);
+    ring.setAttribute('stroke-width', '1.5');
+    ring.setAttribute('stroke-dasharray', confirmed ? 'none' : '4 3');
+
+    // center dot
+    const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    dot.setAttribute('cx', pos.x);
+    dot.setAttribute('cy', pos.y);
+    dot.setAttribute('r', '3');
+    dot.setAttribute('fill', color);
+
+    // crosshair H
+    const ch = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    ch.setAttribute('x1', pos.x - 14); ch.setAttribute('y1', pos.y);
+    ch.setAttribute('x2', pos.x + 14); ch.setAttribute('y2', pos.y);
+    ch.setAttribute('stroke', color); ch.setAttribute('stroke-width', '1');
+
+    // crosshair V
+    const cv = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    cv.setAttribute('x1', pos.x); cv.setAttribute('y1', pos.y - 14);
+    cv.setAttribute('x2', pos.x); cv.setAttribute('y2', pos.y + 14);
+    cv.setAttribute('stroke', color); cv.setAttribute('stroke-width', '1');
+
+    // label
+    const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    label.setAttribute('x', pos.x + 26);
+    label.setAttribute('y', pos.y + 4);
+    label.setAttribute('fill', color);
+    label.setAttribute('font-size', '11');
+    label.setAttribute('font-weight', '700');
+    label.setAttribute('font-family', '-apple-system, sans-serif');
+    label.setAttribute('letter-spacing', '0.5');
+    label.textContent = confirmed ? `A${i+1} ✓` : `A${i+1}`;
+
+    g.appendChild(ring);
+    g.appendChild(ch);
+    g.appendChild(cv);
+    g.appendChild(dot);
+    g.appendChild(label);
+    anchorSvg.appendChild(g);
   });
 }
 
-// Start camera
-async function startCamera() {
+// ── Snap button lock/unlock ──
+function updateSnapBtn() {
+  const allConfirmed = anchors.length === 2 && anchors.every(a => a.confirmed);
+  const hasAnchors = anchors.length > 0;
+  if (!hasAnchors) {
+    // no anchors: normal unlock
+    snapBtn.style.opacity = '1';
+    snapBtn.style.pointerEvents = 'auto';
+  } else if (allConfirmed) {
+    snapBtn.style.opacity = '1';
+    snapBtn.style.pointerEvents = 'auto';
+  } else {
+    snapBtn.style.opacity = '0.3';
+    snapBtn.style.pointerEvents = 'none';
+  }
+}
+
+// ── Camera ──
+startBtn.addEventListener('click', async () => {
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode, width: { ideal: 1280 }, height: { ideal: 960 } },
+      video: { facingMode: 'environment', width: { ideal: 4096 }, height: { ideal: 3072 } },
       audio: false
     });
     video.srcObject = stream;
     streaming = true;
     placeholder.style.display = 'none';
     snapBtn.style.display = 'flex';
-    flipBtn.style.display = 'flex';
     startBtn.style.display = 'none';
-    video.style.filter = currentFilter;
-    status.textContent = '✦ 相機已就緒';
-    setInterval(drawThumbs, 1000);
-    setTimeout(drawThumbs, 500);
   } catch(e) {
-    status.textContent = '無法存取鏡頭：' + (e.message || e);
+    alert('無法存取相機：' + e.message);
   }
-}
-
-startBtn.addEventListener('click', startCamera);
-
-flipBtn.addEventListener('click', async () => {
-  facingMode = facingMode === 'user' ? 'environment' : 'user';
-  const tracks = video.srcObject?.getTracks();
-  tracks?.forEach(t => t.stop());
-  await startCamera();
 });
 
-function applyFilmEffect(ctx, w, h, filmObj) {
-  // 1. lift blacks: raise shadow floor
-  if (filmObj.liftBlacks > 0) {
-    const lift = filmObj.liftBlacks;
-    ctx.globalCompositeOperation = 'lighten';
-    // warm shadow tint (Portra: orange-ish)
-    if (filmObj.warmShadow) ctx.fillStyle = `rgba(${lift*2},${lift},0,0.18)`;
-    // cool shadow tint (400H: cyan-ish)
-    else if (filmObj.coolShadow) ctx.fillStyle = `rgba(0,${lift},${lift*2},0.16)`;
-    else ctx.fillStyle = `rgba(${lift},${lift},${lift},0.15)`;
-    ctx.fillRect(0, 0, w, h);
-    ctx.globalCompositeOperation = 'source-over';
-  }
+// ── Load reference ──
+loadBtn.addEventListener('click', () => refInput.click());
 
-  // 2. film grain via pixel noise
-  if (filmObj.grain > 0) {
-    const imageData = ctx.getImageData(0, 0, w, h);
-    const data = imageData.data;
-    const g = filmObj.grain;
-    for (let i = 0; i < data.length; i += 4) {
-      // grain is stronger in shadows, weaker in highlights (like real film)
-      const lum = (data[i] * 0.299 + data[i+1] * 0.587 + data[i+2] * 0.114) / 255;
-      const strength = g * (1 - lum * 0.6);  // shadows get more grain
-      const noise = (Math.random() - 0.5) * strength;
-      data[i]   = Math.min(255, Math.max(0, data[i]   + noise));
-      data[i+1] = Math.min(255, Math.max(0, data[i+1] + noise));
-      data[i+2] = Math.min(255, Math.max(0, data[i+2] + noise));
+refInput.addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const img = new Image();
+  img.onload = () => {
+    refImg = img;
+    tx = 0; ty = 0; scale = 1; rot = 0;
+    anchors = [];
+    anchorMode = false;
+    anchorBtn.classList.remove('active');
+    anchorHint.style.display = 'none';
+    touchLayer.dataset.mode = '';
+    const W = overlayCvs.width;
+    const H = overlayCvs.height;
+    scale = Math.min(W / img.naturalWidth, H / img.naturalHeight);
+    opacityRow.classList.add('visible');
+    blinkBtn.style.display = 'flex';
+    anchorBtn.style.display = 'flex';
+    loadBtn.classList.add('active');
+    loadBtn.textContent = '✦ 底圖';
+    updateSnapBtn();
+    draw();
+    drawAnchors();
+  };
+  img.src = URL.createObjectURL(file);
+  refInput.value = '';
+});
+
+// ── Opacity ──
+opacitySlider.addEventListener('input', () => {
+  opacity = opacitySlider.value / 100;
+  opacityVal.textContent = opacitySlider.value + '%';
+  draw();
+});
+
+// ── Grid ──
+gridBtn.addEventListener('click', () => {
+  gridOn = !gridOn;
+  gridSvg.classList.toggle('visible', gridOn);
+  gridBtn.classList.toggle('active', gridOn);
+});
+
+// ── Blink ──
+blinkBtn.addEventListener('click', () => {
+  blinkOn = !blinkOn;
+  blinkBtn.classList.toggle('active', blinkOn);
+  blinkInd.style.display = blinkOn ? 'block' : 'none';
+  if (blinkOn) {
+    blinkShow = true;
+    blinkTimer = setInterval(() => {
+      blinkShow = !blinkShow;
+      draw();
+    }, 800);
+  } else {
+    clearInterval(blinkTimer);
+    blinkShow = true;
+    draw();
+  }
+});
+
+// ── Anchor mode toggle ──
+anchorBtn.addEventListener('click', () => {
+  anchorMode = !anchorMode;
+  anchorBtn.classList.toggle('active', anchorMode);
+
+  if (anchorMode) {
+    anchorHint.style.display = 'block';
+    updateAnchorHint();
+    touchLayer.dataset.mode = 'anchor';
+  } else {
+    anchorHint.style.display = 'none';
+    touchLayer.dataset.mode = '';
+  }
+});
+
+function updateAnchorHint() {
+  if (anchors.length === 0) {
+    anchorHint.textContent = '點選第一個錨點（花盆左緣）';
+  } else if (anchors.length === 1) {
+    anchorHint.textContent = '點選第二個錨點（花盆右緣）';
+  } else {
+    const unconfirmed = anchors.filter(a => !a.confirmed).length;
+    if (unconfirmed > 0) {
+      anchorHint.textContent = `點擊錨點圓圈確認對齊 (${anchors.filter(a=>a.confirmed).length}/2)`;
+    } else {
+      anchorHint.textContent = '✓ 兩點已對齊，可以拍照';
+      anchorHint.style.color = '#4ade80';
     }
-    ctx.putImageData(imageData, 0, 0);
   }
 }
 
+// ── Snap ──
 snapBtn.addEventListener('click', () => {
-  const w = video.videoWidth || 640;
-  const h = video.videoHeight || 480;
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext('2d');
+  const vw = video.videoWidth  || 1920;
+  const vh = video.videoHeight || 1080;
+  snapCanvas.width  = vw;
+  snapCanvas.height = vh;
+  const ctx = snapCanvas.getContext('2d');
+  ctx.drawImage(video, 0, 0, vw, vh);
 
-  // apply CSS filter first via drawImage
-  const filmObj = FILTERS.find(f => f.css === currentFilter) || FILTERS[0];
-  ctx.filter = currentFilter === 'none' ? 'none' : currentFilter;
-  ctx.drawImage(video, 0, 0);
-  ctx.filter = 'none';
-
-  // then canvas-level film effects
-  applyFilmEffect(ctx, w, h, filmObj);
-
-  // flash effect
   flash.classList.add('on');
   setTimeout(() => flash.classList.remove('on'), 120);
 
-  const url = canvas.toDataURL('image/jpeg', 0.93);
-  addToGallery(url);
-  status.textContent = '✦ 已拍攝 — 點擊縮圖儲存';
+  // reset confirmations after snap so next time needs re-confirmation
+  anchors.forEach(a => a.confirmed = false);
+  drawAnchors();
+  updateSnapBtn();
+  updateAnchorHint();
+
+  const url = snapCanvas.toDataURL('image/jpeg', 0.97);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'plant_' + Date.now() + '.jpg';
+  a.click();
 });
 
-function addToGallery(url) {
-  galleryLabel.style.display = 'block';
-  const div = document.createElement('div');
-  div.className = 'shot';
-  const img = document.createElement('img');
-  img.src = url;
-  const dl = document.createElement('button');
-  dl.className = 'dl';
-  dl.textContent = '儲存';
-  dl.addEventListener('click', () => {
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'photo_' + Date.now() + '.jpg';
-    a.click();
-  });
-  div.appendChild(img);
-  div.appendChild(dl);
-  gallery.prepend(div);
+// ── Touch gesture handler ──
+let touches   = {};
+let lastDist  = null;
+let lastAngle = null;
+let lastMid   = null;
+
+function getTouches(e) {
+  return Array.from(e.touches).map(t => ({
+    id: t.identifier,
+    x: t.clientX,
+    y: t.clientY
+  }));
 }
+
+function midpoint(a, b) { return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }; }
+function dist(a, b)      { return Math.hypot(b.x - a.x, b.y - a.y); }
+function angle(a, b)     { return Math.atan2(b.y - a.y, b.x - a.x); }
+
+// ── Handle tap in anchor mode ──
+function handleAnchorTap(clientX, clientY) {
+  const rect = overlayCvs.getBoundingClientRect();
+  const sx = clientX - rect.left;
+  const sy = clientY - rect.top;
+
+  const W = overlayCvs.width;
+  const H = overlayCvs.height;
+
+  // Check if tapping near existing anchor → toggle confirmed
+  for (let i = 0; i < anchors.length; i++) {
+    const pos = anchorToScreen(anchors[i]);
+    if (Math.hypot(sx - pos.x, sy - pos.y) < 32) {
+      anchors[i].confirmed = !anchors[i].confirmed;
+      drawAnchors();
+      updateSnapBtn();
+      updateAnchorHint();
+      return;
+    }
+  }
+
+  // Place new anchor (max 2; clicking 3rd replaces oldest)
+  if (anchors.length >= 2) {
+    anchors.shift();
+  }
+
+  // Convert screen → local image coords (normalized)
+  const dx = sx - (W / 2 + tx);
+  const dy = sy - (H / 2 + ty);
+  const cosR = Math.cos(-rot), sinR = Math.sin(-rot);
+  const rx = (dx * cosR - dy * sinR) / scale;
+  const ry = (dx * sinR + dy * cosR) / scale;
+  const nx = rx / refImg.naturalWidth;
+  const ny = ry / refImg.naturalHeight;
+
+  anchors.push({ nx, ny, confirmed: false });
+  drawAnchors();
+  updateSnapBtn();
+  updateAnchorHint();
+}
+
+touchLayer.addEventListener('touchstart', e => {
+  e.preventDefault();
+  const pts = getTouches(e);
+  if (pts.length === 2) {
+    lastDist  = dist(pts[0], pts[1]);
+    lastAngle = angle(pts[0], pts[1]);
+    lastMid   = midpoint(pts[0], pts[1]);
+  } else if (pts.length === 1) {
+    lastMid = { x: pts[0].x, y: pts[0].y };
+  }
+}, { passive: false });
+
+touchLayer.addEventListener('touchmove', e => {
+  e.preventDefault();
+  if (!refImg) return;
+  const pts = getTouches(e);
+
+  if (pts.length === 2) {
+    const d = dist(pts[0], pts[1]);
+    const a = angle(pts[0], pts[1]);
+    const m = midpoint(pts[0], pts[1]);
+
+    if (lastDist  !== null) scale = Math.max(0.1, Math.min(8, scale * d / lastDist));
+    if (lastAngle !== null) rot   += a - lastAngle;
+    if (lastMid   !== null) { tx += m.x - lastMid.x; ty += m.y - lastMid.y; }
+
+    lastDist  = d;
+    lastAngle = a;
+    lastMid   = m;
+  } else if (pts.length === 1 && lastMid) {
+    // in anchor mode, single-finger drag does nothing (prevents accidental pan)
+    if (touchLayer.dataset.mode !== 'anchor') {
+      tx += pts[0].x - lastMid.x;
+      ty += pts[0].y - lastMid.y;
+      lastMid = { x: pts[0].x, y: pts[0].y };
+    }
+  }
+
+  if (!blinkOn || blinkShow) draw();
+  drawAnchors();
+}, { passive: false });
+
+touchLayer.addEventListener('touchend', e => {
+  const pts = getTouches(e);
+  if (pts.length < 2) { lastDist = null; lastAngle = null; }
+  if (pts.length === 1) lastMid = { x: pts[0].x, y: pts[0].y };
+  if (pts.length === 0) lastMid = null;
+}, { passive: false });
+
+// Double-tap to reset transform / single-tap for anchor placement
+let lastTap = 0;
+touchLayer.addEventListener('touchend', e => {
+  const now = Date.now();
+  const t = e.changedTouches[0];
+
+  if (touchLayer.dataset.mode === 'anchor' && e.changedTouches.length === 1) {
+    // In anchor mode: single tap = place/confirm anchor
+    handleAnchorTap(t.clientX, t.clientY);
+    lastTap = 0; // prevent double-tap reset
+    return;
+  }
+
+  if (now - lastTap < 300 && e.changedTouches.length === 1) {
+    tx = 0; ty = 0; rot = 0;
+    const W = overlayCvs.width, H = overlayCvs.height;
+    scale = Math.min(W / refImg.naturalWidth, H / refImg.naturalHeight);
+    draw();
+    drawAnchors();
+  }
+  lastTap = now;
+});
 </script>
 </body>
 </html>
