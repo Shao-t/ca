@@ -286,7 +286,7 @@
 <canvas id="snap-canvas"></canvas>
 
 <script>
-// ── State ──
+// ── DOM refs ──
 const video         = document.getElementById('video');
 const overlayCvs    = document.getElementById('overlay-canvas');
 const oc            = overlayCvs.getContext('2d');
@@ -309,147 +309,165 @@ const touchLayer    = document.getElementById('touch-layer');
 const anchorSvg     = document.getElementById('anchor-svg');
 const anchorHint    = document.getElementById('anchor-hint');
 
-let refImg     = null;
-let opacity    = 0.35;
-let gridOn     = false;
-let blinkOn    = false;
-let blinkTimer = null;
-let blinkShow  = true;
-let streaming  = false;
+// ── Image & display state ──
+let refImg    = null;
+let opacity   = 0.35;
+let gridOn    = false;
+let blinkOn   = false;
+let blinkTimer= null;
+let blinkShow = true;
+let streaming = false;
 
-// transform state
+// transform state (image overlay)
 let tx = 0, ty = 0, scale = 1, rot = 0;
 
-// ── Anchor state ──
-// anchors stored as normalized coords relative to refImg center
-// { nx, ny } where nx = (px - imgCenterX) / imgW, ny = (py - imgCenterY) / imgH
-// so they transform with the image
-let anchorMode  = false;   // currently placing anchors on overlay
-let anchors     = [];      // max 2, each { nx, ny, confirmed }
+// ── Pot outline state ──
+// potPts: up to 4 points in normalized image coords { nx, ny }
+// order: 盆口左(0) → 盆口右(1) → 盆底右(2) → 盆底左(3)
+const PT_LABELS = ['盆口左', '盆口右', '盆底右', '盆底左'];
+let potPts    = [];   // normalized img-space coords
+let anchorMode = false;
 
-// ── Resize overlay canvas ──
+// ── Resize ──
 function resizeCanvas() {
   const wrap = overlayCvs.parentElement;
   overlayCvs.width  = wrap.offsetWidth;
   overlayCvs.height = wrap.offsetHeight;
-  // also resize anchor SVG viewBox
   anchorSvg.setAttribute('viewBox', `0 0 ${wrap.offsetWidth} ${wrap.offsetHeight}`);
 }
-window.addEventListener('resize', () => { resizeCanvas(); draw(); drawAnchors(); });
+window.addEventListener('resize', () => { resizeCanvas(); draw(); drawPot(); });
 resizeCanvas();
 
-// ── Draw reference image overlay ──
+// ── Draw reference image ──
 function draw() {
-  const W = overlayCvs.width;
-  const H = overlayCvs.height;
+  const W = overlayCvs.width, H = overlayCvs.height;
   oc.clearRect(0, 0, W, H);
   if (!refImg || !blinkShow) return;
-
   oc.save();
   oc.globalAlpha = opacity;
-  oc.translate(W / 2 + tx, H / 2 + ty);
+  oc.translate(W/2 + tx, H/2 + ty);
   oc.rotate(rot);
   oc.scale(scale, scale);
-  oc.drawImage(refImg, -refImg.naturalWidth / 2, -refImg.naturalHeight / 2,
+  oc.drawImage(refImg, -refImg.naturalWidth/2, -refImg.naturalHeight/2,
                refImg.naturalWidth, refImg.naturalHeight);
   oc.restore();
 }
 
-// ── Convert anchor normalized coords → screen coords ──
-function anchorToScreen(a) {
-  const W = overlayCvs.width;
-  const H = overlayCvs.height;
-  // local coords relative to img center
-  const lx = a.nx * refImg.naturalWidth;
-  const ly = a.ny * refImg.naturalHeight;
-  // apply rotation
+// ── Convert normalized img coord → screen coord ──
+function toScreen(nx, ny) {
+  const W = overlayCvs.width, H = overlayCvs.height;
+  const lx = nx * refImg.naturalWidth;
+  const ly = ny * refImg.naturalHeight;
   const cosR = Math.cos(rot), sinR = Math.sin(rot);
-  const rx = lx * cosR - ly * sinR;
-  const ry = lx * sinR + ly * cosR;
-  // apply scale + translate
   return {
-    x: W / 2 + tx + rx * scale,
-    y: H / 2 + ty + ry * scale
+    x: W/2 + tx + (lx*cosR - ly*sinR)*scale,
+    y: H/2 + ty + (lx*sinR + ly*cosR)*scale
   };
 }
 
-// ── Draw anchors on SVG layer ──
-function drawAnchors() {
-  anchorSvg.innerHTML = '';
-  if (!refImg) return;
-
-  anchors.forEach((a, i) => {
-    const pos = anchorToScreen(a);
-    const confirmed = a.confirmed;
-    const color = confirmed ? '#4ade80' : '#ef4444';
-    const labelBg = confirmed ? 'rgba(74,222,128,0.15)' : 'rgba(239,68,68,0.15)';
-
-    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-
-    // outer ring
-    const ring = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-    ring.setAttribute('cx', pos.x);
-    ring.setAttribute('cy', pos.y);
-    ring.setAttribute('r', '22');
-    ring.setAttribute('fill', labelBg);
-    ring.setAttribute('stroke', color);
-    ring.setAttribute('stroke-width', '1.5');
-    ring.setAttribute('stroke-dasharray', confirmed ? 'none' : '4 3');
-
-    // center dot
-    const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-    dot.setAttribute('cx', pos.x);
-    dot.setAttribute('cy', pos.y);
-    dot.setAttribute('r', '3');
-    dot.setAttribute('fill', color);
-
-    // crosshair H
-    const ch = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-    ch.setAttribute('x1', pos.x - 14); ch.setAttribute('y1', pos.y);
-    ch.setAttribute('x2', pos.x + 14); ch.setAttribute('y2', pos.y);
-    ch.setAttribute('stroke', color); ch.setAttribute('stroke-width', '1');
-
-    // crosshair V
-    const cv = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-    cv.setAttribute('x1', pos.x); cv.setAttribute('y1', pos.y - 14);
-    cv.setAttribute('x2', pos.x); cv.setAttribute('y2', pos.y + 14);
-    cv.setAttribute('stroke', color); cv.setAttribute('stroke-width', '1');
-
-    // label
-    const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-    label.setAttribute('x', pos.x + 26);
-    label.setAttribute('y', pos.y + 4);
-    label.setAttribute('fill', color);
-    label.setAttribute('font-size', '11');
-    label.setAttribute('font-weight', '700');
-    label.setAttribute('font-family', '-apple-system, sans-serif');
-    label.setAttribute('letter-spacing', '0.5');
-    label.textContent = confirmed ? `A${i+1} ✓` : `A${i+1}`;
-
-    g.appendChild(ring);
-    g.appendChild(ch);
-    g.appendChild(cv);
-    g.appendChild(dot);
-    g.appendChild(label);
-    anchorSvg.appendChild(g);
-  });
+// ── Convert screen coord → normalized img coord ──
+function toNorm(sx, sy) {
+  const W = overlayCvs.width, H = overlayCvs.height;
+  const dx = sx - (W/2 + tx);
+  const dy = sy - (H/2 + ty);
+  const cosR = Math.cos(-rot), sinR = Math.sin(-rot);
+  return {
+    nx: (dx*cosR - dy*sinR) / scale / refImg.naturalWidth,
+    ny: (dx*sinR + dy*cosR) / scale / refImg.naturalHeight
+  };
 }
 
-// ── Snap button lock/unlock ──
-function updateSnapBtn() {
-  const allConfirmed = anchors.length === 2 && anchors.every(a => a.confirmed);
-  const hasAnchors = anchors.length > 0;
-  if (!hasAnchors) {
-    // no anchors: normal unlock
-    snapBtn.style.opacity = '1';
-    snapBtn.style.pointerEvents = 'auto';
-  } else if (allConfirmed) {
-    snapBtn.style.opacity = '1';
-    snapBtn.style.pointerEvents = 'auto';
-  } else {
-    snapBtn.style.opacity = '0.3';
-    snapBtn.style.pointerEvents = 'none';
+// ── Draw pot outline SVG ──
+function drawPot() {
+  anchorSvg.innerHTML = '';
+  if (!refImg || !anchorMode) return;
+
+  const pts = potPts.map(p => toScreen(p.nx, p.ny));
+
+  // ── Draw trapezoid lines ──
+  // connections: 0-1 (rim), 1-2 (right side), 2-3 (base), 3-0 (left side)
+  const edges = [[0,1],[1,2],[2,3],[3,0]];
+  const edgeColors = ['#f97316','#f97316','#fb923c','#fb923c']; // rim slightly brighter
+
+  if (pts.length >= 2) {
+    edges.forEach(([a, b], ei) => {
+      if (pts[a] && pts[b]) {
+        // glow line (thicker, dim)
+        const glow = makeLine(pts[a], pts[b], edgeColors[ei], 6, 0.18);
+        // main line
+        const line = makeLine(pts[a], pts[b], edgeColors[ei], 1.5, 0.9);
+        anchorSvg.appendChild(glow);
+        anchorSvg.appendChild(line);
+      }
+    });
   }
+
+  // ── Draw corner dots ──
+  pts.forEach((p, i) => {
+    const isRim = i < 2;
+    const col = isRim ? '#fb923c' : '#f97316';
+
+    // outer ring
+    const ring = makeCircle(p, 18, 'none', col, 1.5);
+    // center dot
+    const dot  = makeCircle(p, 3.5, col, 'none', 0);
+    // crosshair
+    const ch = makeLine({x: p.x-11, y: p.y}, {x: p.x+11, y: p.y}, col, 1, 0.7);
+    const cv = makeLine({x: p.x, y: p.y-11}, {x: p.x, y: p.y+11}, col, 1, 0.7);
+
+    // label
+    const lx = i === 0 || i === 3 ? p.x - 26 : p.x + 26;
+    const anchor = i === 0 || i === 3 ? 'end' : 'start';
+    const lbl = makeText(lx, p.y + 4, PT_LABELS[i], col, anchor);
+
+    [ring, ch, cv, dot, lbl].forEach(el => anchorSvg.appendChild(el));
+  });
+
+  // ── Next point hint ──
+  if (pts.length < 4) {
+    const next = PT_LABELS[pts.length];
+    updateHint(`點選 ${next}`);
+  } else {
+    updateHint('梯形已標記完成　移動手機對齊花盆邊緣後拍照');
+    anchorHint.style.color = '#4ade80';
+  }
+}
+
+// ── SVG helpers ──
+function makeLine(a, b, color, width, opacity) {
+  const el = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+  el.setAttribute('x1', a.x); el.setAttribute('y1', a.y);
+  el.setAttribute('x2', b.x); el.setAttribute('y2', b.y);
+  el.setAttribute('stroke', color);
+  el.setAttribute('stroke-width', width);
+  el.setAttribute('stroke-opacity', opacity);
+  el.setAttribute('stroke-linecap', 'round');
+  return el;
+}
+function makeCircle(p, r, fill, stroke, sw) {
+  const el = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+  el.setAttribute('cx', p.x); el.setAttribute('cy', p.y); el.setAttribute('r', r);
+  el.setAttribute('fill', fill); el.setAttribute('stroke', stroke);
+  el.setAttribute('stroke-width', sw);
+  return el;
+}
+function makeText(x, y, text, color, anchor) {
+  const el = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+  el.setAttribute('x', x); el.setAttribute('y', y);
+  el.setAttribute('fill', color);
+  el.setAttribute('font-size', '11');
+  el.setAttribute('font-weight', '700');
+  el.setAttribute('font-family', '-apple-system, sans-serif');
+  el.setAttribute('letter-spacing', '0.3');
+  el.setAttribute('text-anchor', anchor);
+  el.textContent = text;
+  return el;
+}
+
+function updateHint(msg) {
+  anchorHint.textContent = msg;
+  anchorHint.style.display = 'block';
+  if (!msg.includes('完成')) anchorHint.style.color = '#7ec850';
 }
 
 // ── Camera ──
@@ -471,7 +489,6 @@ startBtn.addEventListener('click', async () => {
 
 // ── Load reference ──
 loadBtn.addEventListener('click', () => refInput.click());
-
 refInput.addEventListener('change', e => {
   const file = e.target.files[0];
   if (!file) return;
@@ -479,22 +496,19 @@ refInput.addEventListener('change', e => {
   img.onload = () => {
     refImg = img;
     tx = 0; ty = 0; scale = 1; rot = 0;
-    anchors = [];
+    potPts = [];
     anchorMode = false;
     anchorBtn.classList.remove('active');
     anchorHint.style.display = 'none';
     touchLayer.dataset.mode = '';
-    const W = overlayCvs.width;
-    const H = overlayCvs.height;
+    const W = overlayCvs.width, H = overlayCvs.height;
     scale = Math.min(W / img.naturalWidth, H / img.naturalHeight);
     opacityRow.classList.add('visible');
     blinkBtn.style.display = 'flex';
     anchorBtn.style.display = 'flex';
     loadBtn.classList.add('active');
     loadBtn.textContent = '✦ 底圖';
-    updateSnapBtn();
-    draw();
-    drawAnchors();
+    draw(); drawPot();
   };
   img.src = URL.createObjectURL(file);
   refInput.value = '';
@@ -521,14 +535,9 @@ blinkBtn.addEventListener('click', () => {
   blinkInd.style.display = blinkOn ? 'block' : 'none';
   if (blinkOn) {
     blinkShow = true;
-    blinkTimer = setInterval(() => {
-      blinkShow = !blinkShow;
-      draw();
-    }, 800);
+    blinkTimer = setInterval(() => { blinkShow = !blinkShow; draw(); }, 800);
   } else {
-    clearInterval(blinkTimer);
-    blinkShow = true;
-    draw();
+    clearInterval(blinkTimer); blinkShow = true; draw();
   }
 });
 
@@ -536,157 +545,103 @@ blinkBtn.addEventListener('click', () => {
 anchorBtn.addEventListener('click', () => {
   anchorMode = !anchorMode;
   anchorBtn.classList.toggle('active', anchorMode);
+  anchorBtn.textContent = anchorMode ? '✦ 輪廓' : '輪廓';
+  touchLayer.dataset.mode = anchorMode ? 'anchor' : '';
 
   if (anchorMode) {
-    anchorHint.style.display = 'block';
-    updateAnchorHint();
-    touchLayer.dataset.mode = 'anchor';
+    if (potPts.length === 0) updateHint(`點選 ${PT_LABELS[0]}`);
+    else if (potPts.length < 4) updateHint(`點選 ${PT_LABELS[potPts.length]}`);
+    else { updateHint('梯形已標記完成　移動手機對齊花盆邊緣後拍照'); anchorHint.style.color = '#4ade80'; }
   } else {
     anchorHint.style.display = 'none';
-    touchLayer.dataset.mode = '';
   }
+  drawPot();
 });
-
-function updateAnchorHint() {
-  if (anchors.length === 0) {
-    anchorHint.textContent = '點選第一個錨點（花盆左緣）';
-  } else if (anchors.length === 1) {
-    anchorHint.textContent = '點選第二個錨點（花盆右緣）';
-  } else {
-    const unconfirmed = anchors.filter(a => !a.confirmed).length;
-    if (unconfirmed > 0) {
-      anchorHint.textContent = `點擊錨點圓圈確認對齊 (${anchors.filter(a=>a.confirmed).length}/2)`;
-    } else {
-      anchorHint.textContent = '✓ 兩點已對齊，可以拍照';
-      anchorHint.style.color = '#4ade80';
-    }
-  }
-}
 
 // ── Snap ──
 snapBtn.addEventListener('click', () => {
   const vw = video.videoWidth  || 1920;
   const vh = video.videoHeight || 1080;
-  snapCanvas.width  = vw;
-  snapCanvas.height = vh;
+  snapCanvas.width = vw; snapCanvas.height = vh;
   const ctx = snapCanvas.getContext('2d');
   ctx.drawImage(video, 0, 0, vw, vh);
-
   flash.classList.add('on');
   setTimeout(() => flash.classList.remove('on'), 120);
-
-  // reset confirmations after snap so next time needs re-confirmation
-  anchors.forEach(a => a.confirmed = false);
-  drawAnchors();
-  updateSnapBtn();
-  updateAnchorHint();
-
   const url = snapCanvas.toDataURL('image/jpeg', 0.97);
   const a = document.createElement('a');
-  a.href = url;
-  a.download = 'plant_' + Date.now() + '.jpg';
-  a.click();
+  a.href = url; a.download = 'plant_' + Date.now() + '.jpg'; a.click();
 });
 
-// ── Touch gesture handler ──
-let touches   = {};
-let lastDist  = null;
-let lastAngle = null;
-let lastMid   = null;
-
+// ── Touch helpers ──
+let lastDist = null, lastAngle = null, lastMid = null;
 function getTouches(e) {
-  return Array.from(e.touches).map(t => ({
-    id: t.identifier,
-    x: t.clientX,
-    y: t.clientY
-  }));
+  return Array.from(e.touches).map(t => ({ id: t.identifier, x: t.clientX, y: t.clientY }));
 }
+function midpoint(a, b) { return { x: (a.x+b.x)/2, y: (a.y+b.y)/2 }; }
+function dist(a, b)     { return Math.hypot(b.x-a.x, b.y-a.y); }
+function angle(a, b)    { return Math.atan2(b.y-a.y, b.x-a.x); }
 
-function midpoint(a, b) { return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }; }
-function dist(a, b)      { return Math.hypot(b.x - a.x, b.y - a.y); }
-function angle(a, b)     { return Math.atan2(b.y - a.y, b.x - a.x); }
-
-// ── Handle tap in anchor mode ──
+// ── Tap in anchor mode: place or remove point ──
 function handleAnchorTap(clientX, clientY) {
   const rect = overlayCvs.getBoundingClientRect();
   const sx = clientX - rect.left;
   const sy = clientY - rect.top;
 
-  const W = overlayCvs.width;
-  const H = overlayCvs.height;
-
-  // Check if tapping near existing anchor → toggle confirmed
-  for (let i = 0; i < anchors.length; i++) {
-    const pos = anchorToScreen(anchors[i]);
-    if (Math.hypot(sx - pos.x, sy - pos.y) < 32) {
-      anchors[i].confirmed = !anchors[i].confirmed;
-      drawAnchors();
-      updateSnapBtn();
-      updateAnchorHint();
+  // tap near existing point → remove it and all after it
+  for (let i = 0; i < potPts.length; i++) {
+    const p = toScreen(potPts[i].nx, potPts[i].ny);
+    if (Math.hypot(sx - p.x, sy - p.y) < 28) {
+      potPts.splice(i);   // remove from i onward
+      anchorHint.style.color = '#7ec850';
+      drawPot();
       return;
     }
   }
 
-  // Place new anchor (max 2; clicking 3rd replaces oldest)
-  if (anchors.length >= 2) {
-    anchors.shift();
-  }
-
-  // Convert screen → local image coords (normalized)
-  const dx = sx - (W / 2 + tx);
-  const dy = sy - (H / 2 + ty);
-  const cosR = Math.cos(-rot), sinR = Math.sin(-rot);
-  const rx = (dx * cosR - dy * sinR) / scale;
-  const ry = (dx * sinR + dy * cosR) / scale;
-  const nx = rx / refImg.naturalWidth;
-  const ny = ry / refImg.naturalHeight;
-
-  anchors.push({ nx, ny, confirmed: false });
-  drawAnchors();
-  updateSnapBtn();
-  updateAnchorHint();
+  // place new point (max 4)
+  if (potPts.length >= 4) return;
+  const { nx, ny } = toNorm(sx, sy);
+  potPts.push({ nx, ny });
+  drawPot();
 }
 
+// ── Touch events ──
 touchLayer.addEventListener('touchstart', e => {
   e.preventDefault();
   const pts = getTouches(e);
   if (pts.length === 2) {
-    lastDist  = dist(pts[0], pts[1]);
+    lastDist = dist(pts[0], pts[1]);
     lastAngle = angle(pts[0], pts[1]);
-    lastMid   = midpoint(pts[0], pts[1]);
+    lastMid = midpoint(pts[0], pts[1]);
   } else if (pts.length === 1) {
     lastMid = { x: pts[0].x, y: pts[0].y };
   }
 }, { passive: false });
 
+let moveDetected = false;
 touchLayer.addEventListener('touchmove', e => {
   e.preventDefault();
   if (!refImg) return;
   const pts = getTouches(e);
+  moveDetected = true;
 
   if (pts.length === 2) {
     const d = dist(pts[0], pts[1]);
     const a = angle(pts[0], pts[1]);
     const m = midpoint(pts[0], pts[1]);
-
     if (lastDist  !== null) scale = Math.max(0.1, Math.min(8, scale * d / lastDist));
-    if (lastAngle !== null) rot   += a - lastAngle;
+    if (lastAngle !== null) rot  += a - lastAngle;
     if (lastMid   !== null) { tx += m.x - lastMid.x; ty += m.y - lastMid.y; }
-
-    lastDist  = d;
-    lastAngle = a;
-    lastMid   = m;
+    lastDist = d; lastAngle = a; lastMid = m;
   } else if (pts.length === 1 && lastMid) {
-    // in anchor mode, single-finger drag does nothing (prevents accidental pan)
-    if (touchLayer.dataset.mode !== 'anchor') {
-      tx += pts[0].x - lastMid.x;
-      ty += pts[0].y - lastMid.y;
-      lastMid = { x: pts[0].x, y: pts[0].y };
-    }
+    // in anchor mode single-finger pans too (needed to position the image)
+    tx += pts[0].x - lastMid.x;
+    ty += pts[0].y - lastMid.y;
+    lastMid = { x: pts[0].x, y: pts[0].y };
   }
 
   if (!blinkOn || blinkShow) draw();
-  drawAnchors();
+  drawPot();
 }, { passive: false });
 
 touchLayer.addEventListener('touchend', e => {
@@ -696,27 +651,35 @@ touchLayer.addEventListener('touchend', e => {
   if (pts.length === 0) lastMid = null;
 }, { passive: false });
 
-// Double-tap to reset transform / single-tap for anchor placement
+// tap detection (no move = tap)
+let tapStart = null;
+touchLayer.addEventListener('touchstart', e => {
+  if (e.touches.length === 1) { moveDetected = false; tapStart = { x: e.touches[0].clientX, y: e.touches[0].clientY }; }
+}, { passive: false });
+
 let lastTap = 0;
 touchLayer.addEventListener('touchend', e => {
-  const now = Date.now();
+  if (e.changedTouches.length !== 1) return;
   const t = e.changedTouches[0];
+  const now = Date.now();
 
-  if (touchLayer.dataset.mode === 'anchor' && e.changedTouches.length === 1) {
-    // In anchor mode: single tap = place/confirm anchor
-    handleAnchorTap(t.clientX, t.clientY);
-    lastTap = 0; // prevent double-tap reset
-    return;
-  }
-
-  if (now - lastTap < 300 && e.changedTouches.length === 1) {
-    tx = 0; ty = 0; rot = 0;
-    const W = overlayCvs.width, H = overlayCvs.height;
-    scale = Math.min(W / refImg.naturalWidth, H / refImg.naturalHeight);
-    draw();
-    drawAnchors();
+  // only register tap if finger didn't move much
+  if (tapStart && Math.hypot(t.clientX - tapStart.x, t.clientY - tapStart.y) < 10 && !moveDetected) {
+    if (anchorMode) {
+      handleAnchorTap(t.clientX, t.clientY);
+      lastTap = 0;
+      return;
+    }
+    // double-tap to reset
+    if (now - lastTap < 300) {
+      tx = 0; ty = 0; rot = 0;
+      const W = overlayCvs.width, H = overlayCvs.height;
+      scale = Math.min(W / refImg.naturalWidth, H / refImg.naturalHeight);
+      draw(); drawPot();
+    }
   }
   lastTap = now;
+  moveDetected = false;
 });
 </script>
 </body>
